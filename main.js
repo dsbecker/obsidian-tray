@@ -119,13 +119,60 @@ const onWindowClose = (event) => event.preventDefault(),
     window.removeEventListener("beforeunload", onWindowUnload, true);
   };
 
+// app.dock.show() resolves asynchronously, and macos silently
+// drops dock transitions requested while a previous one is still
+// settling (e.g. a hide issued during an in-flight show, which
+// happens on launch with "hide on launch" and when rapidly
+// toggling window focus): track the latest desired state and
+// apply transitions one at a time with a settle delay between
+let desiredDockVisibility = null,
+  dockTransitionInFlight = false;
+const applyDockVisibility = async () => {
+    if (dockTransitionInFlight) return;
+    dockTransitionInFlight = true;
+    try {
+      let retries = 0;
+      while (desiredDockVisibility !== null) {
+        const visible = desiredDockVisibility;
+        desiredDockVisibility = null;
+        try {
+          if (visible) {
+            // guard against a show that never resolves jamming the queue
+            await Promise.race([
+              app.dock.show(),
+              new Promise((resolve) => setTimeout(resolve, 1000)),
+            ]);
+          } else app.dock.hide();
+          // macos needs ~1s to settle a dock transition, and both
+          // swallows transitions requested within that window and
+          // misreports isVisible() during it: wait it out, then
+          // verify the state stuck and retry if it was dropped
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          if (desiredDockVisibility === null) {
+            if (app.dock.isVisible() !== visible && retries < 3) {
+              retries++;
+              desiredDockVisibility = visible;
+            } else retries = 0;
+          } else retries = 0;
+        } catch {}
+      }
+    } finally {
+      dockTransitionInFlight = false;
+    }
+  },
+  setDockVisibility = (visible) => {
+    if (process.platform !== "darwin") return;
+    desiredDockVisibility = visible;
+    applyDockVisibility();
+  };
+
 const hideTaskbarIcons = () => {
     getWindows().forEach((win) => win.setSkipTaskbar(true));
-    if (process.platform === "darwin") app.dock.hide();
+    setDockVisibility(false);
   },
   showTaskbarIcons = () => {
     getWindows().forEach((win) => win.setSkipTaskbar(false));
-    if (process.platform === "darwin") app.dock.show();
+    setDockVisibility(true);
   },
   setLaunchOnStartup = () => {
     const { launchOnStartup, runInBackground, hideOnLaunch } = plugin.settings;
