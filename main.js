@@ -283,7 +283,7 @@ const OPTIONS = [
   {
     key: "hideTaskbarIcon",
     desc: `
-      Hides the window's icon from from the dock/taskbar. Enabling the tray icon first
+      Hides the window's icon from the dock/taskbar. Enabling the tray icon first
       is recommended if using this option. This may not work on Linux-based OSes.
     `,
     type: "toggle",
